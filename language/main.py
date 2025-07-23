@@ -1,12 +1,10 @@
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import tqdm
 
-import numpy as np
+from argparse import ArgumentParser
 
 from models import TransformerDecoder
-from utils import save_model
+from utils import save_model, load_model
 
 
 # data loading
@@ -48,6 +46,9 @@ def estimate_loss(
 
 
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument("--demo", action="store_true", default=False)
+    args = parser.parse_args()
     batch_size = 64
     block_size = 256
     max_iters = 5000
@@ -63,7 +64,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     """prepare dataset"""
-    with open("./data/allreadmes.txt", "rb") as f:
+    with open("./data/alldata.txt", "rb") as f:
         text = f.read().decode(errors="ignore")
     print(f"loaded {len(text)/1e6}M characters")
     chars = sorted(list(set(text)))
@@ -90,30 +91,36 @@ if __name__ == "__main__":
         lr=lr,
     ).to(device)
 
-    print(
-        f"training with {sum([p.numel() for p in model.parameters() if p.requires_grad]) / 1e6}M parameters, vocab size {vocab_size}"
-    )
     """begin training"""
-    epochs = 5000
-    tbar = tqdm.trange(epochs)
-    s = []
-    for i in tbar:
-        if i % eval_interval == 0 or i == epochs - 1:
-            losses = estimate_loss(
-                model, train_data, valid_data, batch_size, block_size, device
-            )
-            s = [f"ep {i}: {losses['train']:4.4f} {losses['val']:4.4f}", ""]
+
+    if not args.demo:
+        print(f"training with {sum([p.numel() for p in model.parameters() if p.requires_grad]) / 1e6}M parameters, vocab size {vocab_size}")
+        epochs = 5000
+        tbar = tqdm.trange(epochs)
+        s = []
+        for i in tbar:
+            if i % eval_interval == 0 or i == epochs - 1:
+                losses = estimate_loss(model, train_data, valid_data, batch_size, block_size, device)
+                s = [f"ep {i}: {losses['train']:4.4f} {losses['val']:4.4f}", ""]
+                tbar.set_description("".join(s))
+            xb, yb = get_batch(train_data, batch_size, block_size, device)
+            l = model.update_parameters(xb, yb)
+            s[-1] = f" | curr: {l:3.3f}"
             tbar.set_description("".join(s))
-        xb, yb = get_batch(train_data, batch_size, block_size, device)
-        l = model.update_parameters(xb, yb)
-        s[-1] = f" | curr: {l:3.3f}"
-        tbar.set_description("".join(s))
+        save_model(model, "./weights/alldata.pt")
+    else:
+        load_model(model, "./weights/alldata.pt")
+        
+    with torch.no_grad():
+        context = torch.zeros((1, 1), dtype=torch.long, device=device)
+        N = 0
+        while True:
+        # for _ in range(block_size - 1):
+            N += 1
+            if N >= block_size:
+                context = context[:, 1:block_size]
+            new = decode(model.sample(context)[0].cpu().tolist())
+            new_t = torch.tensor(encode(new), dtype=torch.long, device=device).unsqueeze(0)
+            context = torch.concatenate((context, new_t), dim=1)
 
-    context = torch.zeros((1, 1), dtype=torch.long, device=device)
-    for _ in range(block_size):
-        new = decode(model.sample(context)[0].detach().cpu().tolist())
-        new_t = torch.tensor(encode(new), dtype=torch.long, device=device).unsqueeze(0)
-        context = torch.concatenate((context, new_t), dim=1)
-        print(new[0], end="")
-
-    save_model(model, "./weights/allreadme.pt")
+            print(new[0], end="")
