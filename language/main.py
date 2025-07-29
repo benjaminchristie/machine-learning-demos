@@ -64,7 +64,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     """prepare dataset"""
-    with open("./data/alldata.txt", "rb") as f:
+    with open("./data/shake.txt", "rb") as f:
         text = f.read().decode(errors="ignore")
     print(f"loaded {len(text)/1e6}M characters")
     chars = sorted(list(set(text)))
@@ -107,9 +107,9 @@ if __name__ == "__main__":
             l = model.update_parameters(xb, yb)
             s[-1] = f" | curr: {l:3.3f}"
             tbar.set_description("".join(s))
-        save_model(model, "./weights/alldata.pt")
+        save_model(model, "./weights/shake.pt")
     else:
-        load_model(model, "./weights/alldata.pt")
+        load_model(model, "./weights/shake.pt")
         
     with torch.no_grad():
         context = torch.zeros((1, 1), dtype=torch.long, device=device)
