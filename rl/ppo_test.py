@@ -46,10 +46,11 @@ def load_model(model, path):
 
 
 def main(args):
-    env = GymEnv("Pendulum-v1")
+    env = GymEnv(args.env)
     model = PPO(env.state_dim, 64, env.action_dim, env)
-    if args.load:
-        load_model(model, "./weights/ppo.pt")
+    filename = f"./weights/ppo_{args.env}.pt"
+    if args.load and os.path.exists(filename):
+        load_model(model, filename)
     model.update_parameters(args.epochs, batch_size=1, max_timesteps_per_episode=300, n_updates_per_epoch=5)
     env.render()
     n_games = 10
@@ -61,12 +62,13 @@ def main(args):
             state, reward, _ = env.step(action)
             net_reward += reward.item()
         print(f"Game {game} Net reward: {net_reward:2.2f}")
-    save_model(model, "./weights/ppo.pt")
+    save_model(model, filename)
     return
 
 
 if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument("--epochs", type=int, default=10000)
+    parser.add_argument("--env", type=str, default="MountainCarContinuous-v0")
     parser.add_argument("--load", default=False, action="store_true")
     main(parser.parse_args())
