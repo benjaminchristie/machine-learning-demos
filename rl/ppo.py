@@ -50,14 +50,29 @@ class PPO(nn.Module):
         super(PPO, self).__init__()
         self.gamma = 0.95
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.lr = 1e-3
-        self.actor = MLP(input_dim, hidden_dim, output_dim).to(self.device)
-        self.critic = MLP(input_dim, hidden_dim, 1).to(self.device)
+        self.lr = 5e-3
+        self.actor = MLP(input_dim, hidden_dim, output_dim, n_hidden_layers=3).to(self.device)
+        self.critic = MLP(input_dim, hidden_dim, 1, n_hidden_layers=3).to(self.device)
         self.actor_optim = AdamW(self.actor.parameters(), self.lr)
         self.critic_optim = AdamW(self.critic.parameters(), self.lr)
+        self.input_dim = input_dim
+        self.output_dim = output_dim
         self.cov_var = torch.full(size=(output_dim,), fill_value=0.5, device=self.device)
         self.cov_mat = nn.Parameter(torch.diag(self.cov_var), requires_grad=False)
         self.env = env
+        
+    def train(self, mode: bool = True):
+        super(PPO, self).train(mode)
+        self.cov_var = torch.full(size=(self.output_dim,), fill_value=0.5, device=self.device)
+        self.cov_mat = nn.Parameter(torch.diag(self.cov_var), requires_grad=False)
+        return self
+    
+    def eval(self):
+        super(PPO, self).eval()
+        self.cov_var = torch.full(size=(self.output_dim,), fill_value=0.001, device=self.device)
+        self.cov_mat = nn.Parameter(torch.diag(self.cov_var), requires_grad=False)
+        return self
+        
 
     def forward(self, x):
         mean = self.actor.forward(x)
@@ -116,23 +131,25 @@ class PPO(nn.Module):
         batch_log_probs = torch.stack(batch_log_probs)
         batch_ratings = self.compute_ratings(torch.stack(batch_rewards))
 
-        return batch_states, batch_actions, batch_log_probs, batch_ratings
+        return batch_states, batch_actions, batch_log_probs, batch_ratings, batch_rewards
 
     def update_parameters(self, epochs: int = 1, batch_size: int = 1, max_timesteps_per_episode: int = 200, n_updates_per_epoch: int = 5):
-        EPSILON = 0.2
+        EPSILON = 0.5
         N = n_updates_per_epoch
         tbar = tqdm.trange(epochs)
         for _ in tbar:
-            states, actions, log_probs, ratings = self.rollout(batch_size, max_timesteps=max_timesteps_per_episode)
+            states, actions, log_probs, ratings, batch_rewards = self.rollout(batch_size, max_timesteps=max_timesteps_per_episode)
+            if len(states) <= 1:
+                continue
             V, _ = self.evaluate(states, actions)
-            A_k = ratings - V.detach()
+            A_k = ratings.detach() - V.detach()
             # normalizing the advantage helps with convergence
             A_k = (A_k - A_k.mean()) / (A_k.std() + 1e-10)
             avg_actor_loss = 0.0
             avg_critic_loss = 0.0
             for _ in range(N):
                 V, curr_log_probs = self.evaluate(states, actions)
-                ratios = torch.exp(curr_log_probs - log_probs)
+                ratios = torch.exp(curr_log_probs - log_probs.detach())
                 surr1 = ratios * A_k
                 surr2 = torch.clamp(ratios, 1 - EPSILON, 1 + EPSILON) * A_k
 
@@ -149,5 +166,5 @@ class PPO(nn.Module):
                 avg_critic_loss += critic_loss.item()
 
             tbar.set_description(
-                f"Actor Loss {avg_actor_loss/N:5.9f} Critic Loss {avg_critic_loss/N:5.5f} Ratings {torch.mean(ratings[..., 0]):3.3f}"
+                f"Actor Loss {avg_actor_loss/N:4.4f} Critic Loss {avg_critic_loss/N:3.3f} Ratings {torch.mean(ratings[..., 0]):3.3f} Rewards: {sum([torch.sum(x) for x in batch_rewards]):3.3f}"
             )
