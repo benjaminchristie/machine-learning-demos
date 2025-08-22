@@ -15,4 +15,3 @@ python main.py
 ```
 
 run `python main.py --demo` to spit out the example (if the decoder has already been trained)
-```
