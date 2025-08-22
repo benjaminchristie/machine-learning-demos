@@ -86,7 +86,7 @@ def main_theirs():
             action = theirs.select_action(state, eval=render)
             dist_before = np.linalg.norm(state[2:4] - state[0:2])
             dist_after = np.linalg.norm(state[2:4] - state[0:2] + action)
-            r = dist_after - dist_before
+            r = dist_before - dist_after
             done = dist_before < 0.5
             if done:
                 r = 100.0
